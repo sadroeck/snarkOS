@@ -273,9 +273,6 @@ async fn transaction_responder_side() {
     memory_pool.insert(&storage, entry_1).await.unwrap().unwrap();
     memory_pool.insert(&storage, entry_2).await.unwrap().unwrap();
 
-    // drop the locks to avoid deadlocks
-    drop(memory_pool);
-
     // send a GetMemoryPool message
     let get_memory_pool = Payload::GetMemoryPool;
     peer.write_message(&get_memory_pool).await;
@@ -314,9 +311,6 @@ async fn transaction_two_node() {
     };
 
     memory_pool.insert(&storage, entry.clone()).await.unwrap().unwrap();
-
-    // drop the locks to avoid deadlocks
-    drop(memory_pool);
 
     let setup = TestSetup {
         consensus_setup: Some(ConsensusSetup {

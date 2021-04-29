@@ -447,7 +447,7 @@ mod tests {
         assert_eq!(false, peer_book.is_connected(remote_address));
         assert_eq!(false, peer_book.is_disconnected(remote_address));
 
-        peer_book.set_connected(remote_address, None).await.unwrap();
+        peer_book.set_connected(remote_address, None).await;
         assert_eq!(false, peer_book.is_connecting(remote_address));
         assert_eq!(true, peer_book.is_connected(remote_address));
         assert_eq!(false, peer_book.is_disconnected(remote_address));
@@ -481,7 +481,7 @@ mod tests {
         assert_eq!(false, peer_book.is_connected(remote_address));
         assert_eq!(false, peer_book.is_disconnected(remote_address));
 
-        peer_book.set_connected(remote_address, None).await.unwrap();
+        peer_book.set_connected(remote_address, None).await;
         assert_eq!(false, peer_book.is_connecting(remote_address));
         assert_eq!(true, peer_book.is_connected(remote_address));
         assert_eq!(false, peer_book.is_disconnected(remote_address));
@@ -498,13 +498,13 @@ mod tests {
         let remote_address = SocketAddr::from((IpAddr::V4(Ipv4Addr::LOCALHOST), 4031));
 
         peer_book.set_connecting(remote_address).await.unwrap();
-        peer_book.set_connected(remote_address, None).await.unwrap();
+        peer_book.set_connected(remote_address, None).await;
         peer_book.set_disconnected(remote_address).await.unwrap();
         assert_eq!(false, peer_book.is_connecting(remote_address));
         assert_eq!(false, peer_book.is_connected(remote_address));
         assert_eq!(true, peer_book.is_disconnected(remote_address));
 
-        assert!(peer_book.set_connected(remote_address, None).await.is_ok());
+        assert!(peer_book.set_connected(remote_address, None).await);
 
         assert_eq!(false, peer_book.is_connecting(remote_address));
         assert_eq!(true, peer_book.is_connected(remote_address));

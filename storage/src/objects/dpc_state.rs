@@ -53,7 +53,7 @@ impl<T: Transaction, P: LoadableMerkleParameters, S: Storage> Ledger<T, P, S> {
     pub fn current_digest(&self) -> Result<Vec<u8>, StorageError> {
         match self.storage.get(COL_META, KEY_CURR_DIGEST.as_bytes())? {
             Some(current_digest) => Ok(current_digest),
-            None => Ok(to_bytes![self.cm_merkle_tree.read().unwrap().root()].unwrap()),
+            None => Ok(to_bytes![self.cm_merkle_tree.read().root()].unwrap()),
         }
     }
 
@@ -122,10 +122,7 @@ impl<T: Transaction, P: LoadableMerkleParameters, S: Storage> Ledger<T, P, S> {
         let old_commitments = old_cm_and_indices.into_iter().map(|(cm, _)| cm);
         let new_commitments = new_cm_and_indices.into_iter().map(|(cm, _)| cm);
 
-        self.cm_merkle_tree
-            .write()
-            .unwrap()
-            .rebuild(old_commitments, new_commitments)?;
+        self.cm_merkle_tree.write().rebuild(old_commitments, new_commitments)?;
 
         Ok(())
     }
@@ -137,7 +134,7 @@ impl<T: Transaction, P: LoadableMerkleParameters, S: Storage> Ledger<T, P, S> {
         let update_current_digest = DatabaseTransaction(vec![Op::Insert {
             col: COL_META,
             key: KEY_CURR_DIGEST.as_bytes().to_vec(),
-            value: to_bytes![self.cm_merkle_tree.read().unwrap().root()]?.to_vec(),
+            value: to_bytes![self.cm_merkle_tree.read().root()]?.to_vec(),
         }]);
 
         self.storage.batch(update_current_digest)

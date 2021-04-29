@@ -2866,6 +2866,7 @@ dependencies = [
  "anyhow",
  "bincode",
  "hex",
+ "parking_lot",
  "rand 0.8.3",
  "rocksdb",
  "serde",

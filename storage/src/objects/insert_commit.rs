@@ -281,7 +281,7 @@ impl<T: Transaction, P: LoadableMerkleParameters, S: Storage> Ledger<T, P, S> {
 
         // Rebuild the new commitment merkle tree
         self.rebuild_merkle_tree(transaction_cms)?;
-        let new_digest = self.cm_merkle_tree.read().unwrap().root();
+        let new_digest = self.cm_merkle_tree.read().root();
 
         database_transaction.push(Op::Insert {
             col: COL_DIGEST,

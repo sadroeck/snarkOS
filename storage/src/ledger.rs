@@ -15,12 +15,12 @@
 // along with the snarkOS library. If not, see <https://www.gnu.org/licenses/>.
 
 use crate::*;
+use parking_lot::RwLock;
 use snarkos_parameters::GenesisBlock;
 use snarkvm_algorithms::{merkle_tree::MerkleTree, traits::LoadableMerkleParameters};
 use snarkvm_objects::{errors::StorageError, Block, DatabaseTransaction, LedgerScheme, Op, Storage, Transaction};
 use snarkvm_parameters::{traits::genesis::Genesis, LedgerMerkleTreeParameters, Parameter};
 use snarkvm_utilities::bytes::FromBytes;
-use std::sync::RwLock;
 
 use std::{
     fs,
