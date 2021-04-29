@@ -25,7 +25,12 @@ use std::{
 };
 
 use rand::seq::IteratorRandom;
-use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::TcpStream, sync::{Mutex, mpsc::channel}, task};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::TcpStream,
+    sync::{mpsc::channel, Mutex},
+    task,
+};
 
 impl<S: Storage + core::marker::Sync + Send> Node<S> {
     /// Obtain a list of addresses of connecting peers for this node.

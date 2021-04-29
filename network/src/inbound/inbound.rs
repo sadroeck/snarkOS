@@ -19,7 +19,12 @@ use crate::{errors::NetworkError, message::*, ConnReader, ConnWriter, Node, Rece
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use snarkvm_objects::Storage;
-use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}, sync::{Mutex, mpsc::channel}, task};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::{TcpListener, TcpStream},
+    sync::{mpsc::channel, Mutex},
+    task,
+};
 
 /// A stateless component for handling inbound network traffic.
 #[derive(Debug)]
@@ -120,7 +125,9 @@ impl<S: Storage + Send + Sync + 'static> Node<S> {
                                 node.outbound.channels.insert(remote_address, sender).await;
 
                                 // Finally, mark the peer as connected.
-                                node.peer_book.set_connected(remote_address, Some(remote_listener)).await;
+                                node.peer_book
+                                    .set_connected(remote_address, Some(remote_listener))
+                                    .await;
 
                                 trace!("Connected to {}", remote_address);
 

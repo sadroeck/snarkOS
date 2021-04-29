@@ -16,8 +16,7 @@
 
 use crate::{errors::NetworkError, message::*};
 
-use tokio::sync::Mutex;
-use tokio::{io::AsyncWriteExt, net::tcp::OwnedWriteHalf};
+use tokio::{io::AsyncWriteExt, net::tcp::OwnedWriteHalf, sync::Mutex};
 
 use std::{net::SocketAddr, sync::Arc};
 
