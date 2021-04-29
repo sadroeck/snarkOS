@@ -270,7 +270,7 @@ mod protected_rpc_tests {
 
         let (rpc, consensus) = initialize_test_rpc(storage).await;
 
-        consensus.receive_block(&DATA.block_1).unwrap();
+        consensus.receive_block(&DATA.block_1).await.unwrap();
 
         let method = "createrawtransaction".to_string();
 
@@ -322,7 +322,7 @@ mod protected_rpc_tests {
 
         let (rpc, consensus) = initialize_test_rpc(storage).await;
 
-        consensus.receive_block(&DATA.block_1).unwrap();
+        consensus.receive_block(&DATA.block_1).await.unwrap();
 
         let method = "createtransactionkernel".to_string();
 
@@ -369,7 +369,7 @@ mod protected_rpc_tests {
 
         let (rpc, consensus) = initialize_test_rpc(storage).await;
 
-        consensus.receive_block(&DATA.block_1).unwrap();
+        consensus.receive_block(&DATA.block_1).await.unwrap();
 
         let method = "createtransaction".to_string();
 

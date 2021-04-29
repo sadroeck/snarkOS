@@ -421,90 +421,90 @@ mod tests {
     use super::*;
     use std::net::{IpAddr, Ipv4Addr};
 
-    #[test]
-    fn test_set_connecting_from_never_connected() {
+    #[tokio::test]
+    async fn test_set_connecting_from_never_connected() {
         let peer_book = PeerBook::default();
         let remote_address = SocketAddr::from((IpAddr::V4(Ipv4Addr::LOCALHOST), 4031));
 
-        peer_book.add_peer(remote_address);
+        peer_book.add_peer(remote_address).await;
         assert_eq!(false, peer_book.is_connecting(remote_address));
         assert_eq!(false, peer_book.is_connected(remote_address));
         assert_eq!(true, peer_book.is_disconnected(remote_address));
 
-        peer_book.set_connecting(remote_address).unwrap();
+        peer_book.set_connecting(remote_address).await.unwrap();
         assert_eq!(true, peer_book.is_connecting(remote_address));
         assert_eq!(false, peer_book.is_connected(remote_address));
         assert_eq!(true, peer_book.is_disconnected(remote_address));
     }
 
-    #[test]
-    fn test_set_connected_from_connecting() {
+    #[tokio::test]
+    async fn test_set_connected_from_connecting() {
         let peer_book = PeerBook::default();
         let remote_address = SocketAddr::from((IpAddr::V4(Ipv4Addr::LOCALHOST), 4031));
 
-        peer_book.set_connecting(remote_address).unwrap();
+        peer_book.set_connecting(remote_address).await.unwrap();
         assert_eq!(true, peer_book.is_connecting(remote_address));
         assert_eq!(false, peer_book.is_connected(remote_address));
         assert_eq!(false, peer_book.is_disconnected(remote_address));
 
-        peer_book.set_connected(remote_address, None);
+        peer_book.set_connected(remote_address, None).await.unwrap();
         assert_eq!(false, peer_book.is_connecting(remote_address));
         assert_eq!(true, peer_book.is_connected(remote_address));
         assert_eq!(false, peer_book.is_disconnected(remote_address));
     }
 
-    #[test]
-    fn test_set_disconnected_from_connecting() {
+    #[tokio::test]
+    async fn test_set_disconnected_from_connecting() {
         let peer_book = PeerBook::default();
         let remote_address = SocketAddr::from((IpAddr::V4(Ipv4Addr::LOCALHOST), 4031));
 
-        peer_book.add_peer(remote_address);
+        peer_book.add_peer(remote_address).await;
 
-        peer_book.set_connecting(remote_address).unwrap();
+        peer_book.set_connecting(remote_address).await.unwrap();
         assert_eq!(true, peer_book.is_connecting(remote_address));
         assert_eq!(false, peer_book.is_connected(remote_address));
         assert_eq!(true, peer_book.is_disconnected(remote_address));
 
-        peer_book.set_disconnected(remote_address).unwrap();
+        peer_book.set_disconnected(remote_address).await.unwrap();
         assert_eq!(false, peer_book.is_connecting(remote_address));
         assert_eq!(false, peer_book.is_connected(remote_address));
         assert_eq!(true, peer_book.is_disconnected(remote_address));
     }
 
-    #[test]
-    fn test_set_disconnected_from_connected() {
+    #[tokio::test]
+    async fn test_set_disconnected_from_connected() {
         let peer_book = PeerBook::default();
         let remote_address = SocketAddr::from((IpAddr::V4(Ipv4Addr::LOCALHOST), 4031));
 
-        peer_book.set_connecting(remote_address).unwrap();
+        peer_book.set_connecting(remote_address).await.unwrap();
         assert_eq!(true, peer_book.is_connecting(remote_address));
         assert_eq!(false, peer_book.is_connected(remote_address));
         assert_eq!(false, peer_book.is_disconnected(remote_address));
 
-        peer_book.set_connected(remote_address, None);
+        peer_book.set_connected(remote_address, None).await.unwrap();
         assert_eq!(false, peer_book.is_connecting(remote_address));
         assert_eq!(true, peer_book.is_connected(remote_address));
         assert_eq!(false, peer_book.is_disconnected(remote_address));
 
-        peer_book.set_disconnected(remote_address).unwrap();
+        peer_book.set_disconnected(remote_address).await.unwrap();
         assert_eq!(false, peer_book.is_connecting(remote_address));
         assert_eq!(false, peer_book.is_connected(remote_address));
         assert_eq!(true, peer_book.is_disconnected(remote_address));
     }
 
-    #[test]
-    fn test_set_connected_from_disconnected() {
+    #[tokio::test]
+    async fn test_set_connected_from_disconnected() {
         let peer_book = PeerBook::default();
         let remote_address = SocketAddr::from((IpAddr::V4(Ipv4Addr::LOCALHOST), 4031));
 
-        peer_book.set_connecting(remote_address).unwrap();
-        peer_book.set_connected(remote_address, None);
-        peer_book.set_disconnected(remote_address).unwrap();
+        peer_book.set_connecting(remote_address).await.unwrap();
+        peer_book.set_connected(remote_address, None).await.unwrap();
+        peer_book.set_disconnected(remote_address).await.unwrap();
         assert_eq!(false, peer_book.is_connecting(remote_address));
         assert_eq!(false, peer_book.is_connected(remote_address));
         assert_eq!(true, peer_book.is_disconnected(remote_address));
 
-        peer_book.set_connected(remote_address, None);
+        assert!(peer_book.set_connected(remote_address, None).await.is_ok());
 
         assert_eq!(false, peer_book.is_connecting(remote_address));
         assert_eq!(true, peer_book.is_connected(remote_address));

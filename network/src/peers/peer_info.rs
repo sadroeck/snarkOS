@@ -230,8 +230,8 @@ impl PeerInfo {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_new() {
+    #[tokio::test]
+    async fn test_new() {
         let address: SocketAddr = "127.0.0.1:4130".parse().unwrap();
         let peer_info = PeerInfo::new(address);
 
@@ -241,8 +241,8 @@ mod tests {
         assert_eq!(0, peer_info.disconnected_count());
     }
 
-    #[test]
-    fn test_set_disconnected_from_connected() {
+    #[tokio::test]
+    async fn test_set_disconnected_from_connected() {
         let address: SocketAddr = "127.0.0.1:4130".parse().unwrap();
         let mut peer_info = PeerInfo::new(address);
 
@@ -259,8 +259,8 @@ mod tests {
         assert_eq!(1, peer_info.disconnected_count());
     }
 
-    #[test]
-    fn test_set_disconnected_from_never_connected() {
+    #[tokio::test]
+    async fn test_set_disconnected_from_never_connected() {
         let address: SocketAddr = "127.0.0.1:4130".parse().unwrap();
         let mut peer_info = PeerInfo::new(address);
 
@@ -272,8 +272,8 @@ mod tests {
         assert_eq!(0, peer_info.disconnected_count());
     }
 
-    #[test]
-    fn test_set_connected_from_disconnected() {
+    #[tokio::test]
+    async fn test_set_connected_from_disconnected() {
         let address: SocketAddr = "127.0.0.1:4130".parse().unwrap();
         let mut peer_info = PeerInfo::new(address);
 

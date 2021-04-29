@@ -257,7 +257,7 @@ async fn transaction_responder_side() {
     assert!(matches!(payload, Payload::Ping(..)));
 
     // insert transaction into node
-    let mut memory_pool = node.expect_sync().memory_pool();
+    let memory_pool = node.expect_sync().memory_pool();
     let storage = node.expect_sync().storage();
 
     let entry_1 = Entry {
@@ -303,7 +303,7 @@ async fn transaction_two_node() {
     let alice_address = node_alice.local_address().unwrap();
 
     // insert transaction into node_alice
-    let mut memory_pool = node_alice.expect_sync().memory_pool();
+    let memory_pool = node_alice.expect_sync().memory_pool();
     let storage = node_alice.expect_sync().storage();
 
     let transaction = Tx::read(&TRANSACTION_1[..]).unwrap();

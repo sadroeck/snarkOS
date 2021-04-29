@@ -269,11 +269,11 @@ mod tests {
 
     // MemoryPool tests use TRANSACTION_2 because memory pools shouldn't store coinbase transactions
 
-    #[test]
-    fn push() {
+    #[tokio::test]
+    async fn push() {
         let blockchain = FIXTURE_VK.ledger();
 
-        let mut mem_pool = MemoryPool::new();
+        let mem_pool = MemoryPool::new();
         let transaction = Tx::read(&TRANSACTION_2[..]).unwrap();
         let size = TRANSACTION_2.len();
 
@@ -282,9 +282,10 @@ mod tests {
                 size_in_bytes: size,
                 transaction: transaction.clone(),
             })
+            .await
             .unwrap();
 
-        assert_eq!(size, mem_pool.total_size_in_bytes);
+        assert_eq!(size, mem_pool.total_size_in_bytes.load(Ordering::SeqCst));
         assert_eq!(1, mem_pool.transactions.len());
 
         // Duplicate pushes don't do anything
@@ -294,17 +295,18 @@ mod tests {
                 size_in_bytes: size,
                 transaction,
             })
+            .await
             .unwrap();
 
-        assert_eq!(size, mem_pool.total_size_in_bytes);
+        assert_eq!(size, mem_pool.total_size_in_bytes.load(Ordering::SeqCst));
         assert_eq!(1, mem_pool.transactions.len());
     }
 
-    #[test]
-    fn remove_entry() {
+    #[tokio::test]
+    async fn remove_entry() {
         let blockchain = FIXTURE_VK.ledger();
 
-        let mut mem_pool = MemoryPool::new();
+        let mem_pool = MemoryPool::new();
         let transaction = Tx::read(&TRANSACTION_2[..]).unwrap();
         let size = TRANSACTION_2.len();
 
@@ -313,22 +315,22 @@ mod tests {
             transaction,
         };
 
-        mem_pool.insert(&blockchain, entry.clone()).unwrap();
+        mem_pool.insert(&blockchain, entry.clone()).await.unwrap();
 
         assert_eq!(1, mem_pool.transactions.len());
-        assert_eq!(size, mem_pool.total_size_in_bytes);
+        assert_eq!(size, mem_pool.total_size_in_bytes.load(Ordering::SeqCst));
 
-        mem_pool.remove(&entry).unwrap();
+        mem_pool.remove(&entry).await.unwrap();
 
         assert_eq!(0, mem_pool.transactions.len());
-        assert_eq!(0, mem_pool.total_size_in_bytes);
+        assert_eq!(0, mem_pool.total_size_in_bytes.load(Ordering::SeqCst));
     }
 
-    #[test]
-    fn remove_transaction_by_hash() {
+    #[tokio::test]
+    async fn remove_transaction_by_hash() {
         let blockchain = FIXTURE_VK.ledger();
 
-        let mut mem_pool = MemoryPool::new();
+        let mem_pool = MemoryPool::new();
         let transaction = Tx::read(&TRANSACTION_2[..]).unwrap();
         let size = TRANSACTION_2.len();
 
@@ -337,24 +339,26 @@ mod tests {
                 size_in_bytes: size,
                 transaction: transaction.clone(),
             })
+            .await
             .unwrap();
 
         assert_eq!(1, mem_pool.transactions.len());
-        assert_eq!(size, mem_pool.total_size_in_bytes);
+        assert_eq!(size, mem_pool.total_size_in_bytes.load(Ordering::SeqCst));
 
         mem_pool
             .remove_by_hash(&transaction.transaction_id().unwrap().to_vec())
+            .await
             .unwrap();
 
         assert_eq!(0, mem_pool.transactions.len());
-        assert_eq!(0, mem_pool.total_size_in_bytes);
+        assert_eq!(0, mem_pool.total_size_in_bytes.load(Ordering::SeqCst));
     }
 
-    #[test]
-    fn get_candidates() {
+    #[tokio::test]
+    async fn get_candidates() {
         let blockchain = FIXTURE_VK.ledger();
 
-        let mut mem_pool = MemoryPool::new();
+        let mem_pool = MemoryPool::new();
         let transaction = Tx::read(&TRANSACTION_2[..]).unwrap();
 
         let size = to_bytes![transaction].unwrap().len();
@@ -365,6 +369,7 @@ mod tests {
                 size_in_bytes: size,
                 transaction,
             })
+            .await
             .unwrap();
 
         let max_block_size = size + BLOCK_HEADER_SIZE + COINBASE_TRANSACTION_SIZE;
@@ -374,39 +379,44 @@ mod tests {
         assert!(candidates.contains(&expected_transaction));
     }
 
-    #[test]
-    fn store_memory_pool() {
+    #[tokio::test]
+    async fn store_memory_pool() {
         let blockchain = FIXTURE_VK.ledger();
 
-        let mut mem_pool = MemoryPool::new();
+        let mem_pool = MemoryPool::new();
         let transaction = Tx::read(&TRANSACTION_2[..]).unwrap();
         mem_pool
             .insert(&blockchain, Entry {
                 size_in_bytes: TRANSACTION_2.len(),
                 transaction,
             })
+            .await
             .unwrap();
 
         assert_eq!(1, mem_pool.transactions.len());
 
         mem_pool.store(&blockchain).unwrap();
 
-        let new_mem_pool = MemoryPool::from_storage(&blockchain).unwrap();
+        let new_mem_pool = MemoryPool::from_storage(&blockchain).await.unwrap();
 
-        assert_eq!(mem_pool.total_size_in_bytes, new_mem_pool.total_size_in_bytes);
+        assert_eq!(
+            mem_pool.total_size_in_bytes.load(Ordering::SeqCst),
+            new_mem_pool.total_size_in_bytes.load(Ordering::SeqCst)
+        );
     }
 
-    #[test]
-    fn cleanse_memory_pool() {
+    #[tokio::test]
+    async fn cleanse_memory_pool() {
         let blockchain = FIXTURE_VK.ledger();
 
-        let mut mem_pool = MemoryPool::new();
+        let mem_pool = MemoryPool::new();
         let transaction = Tx::read(&TRANSACTION_2[..]).unwrap();
         mem_pool
             .insert(&blockchain, Entry {
                 size_in_bytes: TRANSACTION_2.len(),
                 transaction,
             })
+            .await
             .unwrap();
 
         assert_eq!(1, mem_pool.transactions.len());
@@ -419,9 +429,9 @@ mod tests {
         blockchain.insert_and_commit(&block_1).unwrap();
         blockchain.insert_and_commit(&block_2).unwrap();
 
-        mem_pool.cleanse(&blockchain).unwrap();
+        mem_pool.cleanse(&blockchain).await.unwrap();
 
         assert_eq!(0, mem_pool.transactions.len());
-        assert_eq!(0, mem_pool.total_size_in_bytes);
+        assert_eq!(0, mem_pool.total_size_in_bytes.load(Ordering::SeqCst));
     }
 }

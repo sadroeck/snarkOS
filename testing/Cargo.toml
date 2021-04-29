@@ -100,6 +100,9 @@ version = "1"
 features = [ "macros", "time" ]
 optional = true
 
+[dependencies.futures]
+version = "0.3"
+
 [dependencies.tracing]
 default-features = false
 features = [ "log" ]
