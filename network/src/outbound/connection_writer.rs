@@ -73,6 +73,12 @@ impl ConnWriter {
             self.writer.write_all(&self.buffer[..encrypted_len]).await?;
         }
 
+        // If message is a `SyncBlock` message, log it as a trace.
+        match payload {
+            Payload::SyncBlock(_) => trace!("Sent a '{}' message to {}", payload, self.addr),
+            _ => debug!("Sent a '{}' message to {}", payload, self.addr),
+        }
+
         Ok(())
     }
 }
