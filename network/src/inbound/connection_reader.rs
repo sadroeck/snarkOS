@@ -16,8 +16,7 @@
 
 use crate::{errors::*, message::*};
 
-use parking_lot::Mutex;
-use tokio::{io::AsyncReadExt, net::tcp::OwnedReadHalf};
+use tokio::{io::AsyncReadExt, net::tcp::OwnedReadHalf, sync::Mutex};
 
 use std::{net::SocketAddr, sync::Arc};
 
@@ -76,6 +75,7 @@ impl ConnReader {
                 decrypted_len += self
                     .noise
                     .lock()
+                    .await
                     .read_message(&self.noise_buffer[..chunk_len], &mut self.buffer[decrypted_len..])?;
             }
         }

@@ -24,24 +24,21 @@ use std::{
     time::{Duration, Instant},
 };
 
-use parking_lot::Mutex;
 use rand::seq::IteratorRandom;
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    net::TcpStream,
-    sync::mpsc::channel,
-    task,
-};
+use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::TcpStream, sync::{Mutex, mpsc::channel}, task};
 
-impl<S: Storage> Node<S> {
+impl<S: Storage + core::marker::Sync + Send> Node<S> {
     /// Obtain a list of addresses of connecting peers for this node.
     pub(crate) fn connecting_peers(&self) -> Vec<(SocketAddr, Instant)> {
-        self.peer_book.connecting_peers().into_iter().collect()
+        (&**self.peer_book.connecting_peers().inner())
+            .clone()
+            .into_iter()
+            .collect()
     }
 
     /// Obtain a list of addresses of connected peers for this node.
     pub(crate) fn connected_peers(&self) -> Vec<SocketAddr> {
-        self.peer_book.connected_peers().keys().copied().collect()
+        self.peer_book.connected_peers().inner().keys().copied().collect()
     }
 }
 
@@ -68,6 +65,7 @@ impl<S: Storage + Send + Sync + 'static> Node<S> {
         for (addr, peer_quality) in self
             .peer_book
             .connected_peers()
+            .inner()
             .iter()
             .filter(|(addr, _)| !bootnodes.contains(addr)) // Skip this check if the peer is a bootnode.
             .map(|(addr, info)| (*addr, &info.quality))
@@ -115,6 +113,7 @@ impl<S: Storage + Send + Sync + 'static> Node<S> {
                 let mut connected = self
                     .peer_book
                     .connected_peers()
+                    .inner()
                     .iter()
                     .map(|(addr, info)| (*addr, info.last_connected()))
                     .collect::<Vec<_>>();
@@ -142,7 +141,7 @@ impl<S: Storage + Send + Sync + 'static> Node<S> {
 
         // If this node is not a bootnode,
         // then don't connect if maximum number of connections has been reached.
-        if !self.config.is_bootnode() && !self.can_connect() {
+        if !self.config.is_bootnode() && !self.can_connect().await {
             return Err(NetworkError::TooManyConnections);
         }
 
@@ -159,7 +158,7 @@ impl<S: Storage + Send + Sync + 'static> Node<S> {
             return Err(NetworkError::PeerAlreadyConnected);
         }
 
-        self.peer_book.set_connecting(remote_address)?;
+        self.peer_book.set_connecting(remote_address).await?;
 
         debug!("Connecting to {}...", remote_address);
 
@@ -230,11 +229,11 @@ impl<S: Storage + Send + Sync + 'static> Node<S> {
             });
 
             // Save the channel under the provided remote address.
-            node.outbound.channels.write().insert(remote_address, sender);
+            node.outbound.channels.insert(remote_address, sender).await;
 
-            node.peer_book.set_connected(remote_address, None);
+            node.peer_book.set_connected(remote_address, None).await;
 
-            if let Ok(ref peer) = node.peer_book.get_peer(remote_address) {
+            if let Ok(ref peer) = node.peer_book.get_peer(remote_address).await {
                 peer.register_task(conn_reading_task);
                 peer.register_task(conn_writing_task);
             } else {
@@ -353,13 +352,14 @@ impl<S: Storage + Send + Sync + 'static> Node<S> {
             // Iterate through a selection of random peers and attempt to connect.
             self.peer_book
                 .disconnected_peers()
+                .inner()
                 .iter()
                 .map(|(k, _)| k)
                 .filter(|peer| **peer != own_address && !bootnodes.contains(peer))
                 .copied()
                 .choose_multiple(&mut rand::thread_rng(), count)
         } else {
-            let disconnected_peers = self.peer_book.disconnected_peers();
+            let disconnected_peers = self.peer_book.disconnected_peers().inner();
 
             if disconnected_peers.is_empty() {
                 return;
@@ -484,7 +484,7 @@ impl<S: Storage + Send + Sync + 'static> Node<S> {
     /// as disconnected from this node server.
     ///
     #[inline]
-    pub(crate) fn disconnect_from_peer(&self, remote_address: SocketAddr) -> Result<(), NetworkError> {
+    pub(crate) async fn disconnect_from_peer(&self, remote_address: SocketAddr) -> Result<(), NetworkError> {
         if let Some(ref sync) = self.sync() {
             if self.peer_book.is_syncing_blocks(remote_address) {
                 sync.finished_syncing_blocks();
@@ -492,11 +492,11 @@ impl<S: Storage + Send + Sync + 'static> Node<S> {
         }
 
         // Set the peer as disconnected in the peer book.
-        let result = self.peer_book.set_disconnected(remote_address);
+        let result = self.peer_book.set_disconnected(remote_address).await;
 
         // If the peer was truly disconnected, remove its channel and advise.
         if let Ok(true) = result {
-            self.outbound.channels.write().remove(&remote_address);
+            self.outbound.channels.remove(remote_address.clone()).await;
             trace!("Disconnected from {}", remote_address);
         }
 
@@ -509,6 +509,7 @@ impl<S: Storage + Send + Sync + 'static> Node<S> {
         let peers = self
             .peer_book
             .connected_peers()
+            .inner()
             .iter()
             .map(|(k, _)| k)
             .filter(|&addr| *addr != remote_address)
@@ -523,7 +524,7 @@ impl<S: Storage + Send + Sync + 'static> Node<S> {
     /// A node has sent their list of peer addresses.
     /// Add all new/updated addresses to our disconnected.
     /// The connection handler will be responsible for sending out handshake requests to them.
-    pub(crate) fn process_inbound_peers(&self, peers: Vec<SocketAddr>) {
+    pub(crate) async fn process_inbound_peers(&self, peers: Vec<SocketAddr>) {
         // TODO (howardwu): Simplify this and parallelize this with Rayon.
         // Process all of the peers sent in the message,
         // by informing the peer book of that we found peers.
@@ -548,11 +549,11 @@ impl<S: Storage + Send + Sync + 'static> Node<S> {
             // Inform the peer book that we found a peer.
             // The peer book will determine if we have seen the peer before,
             // and include the peer if it is new.
-            self.peer_book.add_peer(peer_address);
+            self.peer_book.add_peer(peer_address).await;
         }
     }
 
-    pub fn can_connect(&self) -> bool {
+    pub async fn can_connect(&self) -> bool {
         let num_connected = self.peer_book.number_of_connected_peers() as usize;
         let num_connecting = self.peer_book.number_of_connecting_peers() as usize;
 

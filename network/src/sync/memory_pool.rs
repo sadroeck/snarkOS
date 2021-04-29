@@ -98,7 +98,7 @@ impl<S: Storage + Send + core::marker::Sync + 'static> Sync<S> {
                     transaction: tx,
                 };
 
-                self.memory_pool().lock().insert(storage, entry)
+                self.memory_pool().insert(storage, entry).await
             };
 
             if let Ok(inserted) = insertion {
@@ -118,8 +118,7 @@ impl<S: Storage + Send + core::marker::Sync + 'static> Sync<S> {
         let transactions = {
             let mut txs = vec![];
 
-            let mempool = self.memory_pool().lock().transactions.clone();
-            for entry in mempool.values() {
+            for entry in self.memory_pool().transactions.inner().values() {
                 if let Ok(transaction_bytes) = to_bytes![entry.transaction] {
                     txs.push(transaction_bytes);
                 }
@@ -143,8 +142,8 @@ impl<S: Storage + Send + core::marker::Sync + 'static> Sync<S> {
     }
 
     /// A peer has sent us their memory pool transactions.
-    pub(crate) fn received_memory_pool(&self, transactions: Vec<Vec<u8>>) -> Result<(), NetworkError> {
-        let mut memory_pool = self.memory_pool().lock();
+    pub(crate) async fn received_memory_pool(&self, transactions: Vec<Vec<u8>>) -> Result<(), NetworkError> {
+        let memory_pool = self.memory_pool();
         let storage = self.storage();
 
         for transaction_bytes in transactions {
@@ -154,7 +153,7 @@ impl<S: Storage + Send + core::marker::Sync + 'static> Sync<S> {
                 transaction,
             };
 
-            if let Ok(Some(txid)) = memory_pool.insert(&storage, entry) {
+            if let Ok(Some(txid)) = memory_pool.insert(&storage, entry).await {
                 debug!(
                     "Transaction added to memory pool with txid: {:?}",
                     hex::encode(txid.clone())
@@ -166,6 +165,7 @@ impl<S: Storage + Send + core::marker::Sync + 'static> Sync<S> {
         debug!("Cleansing memory pool transactions in database");
         memory_pool
             .cleanse(&storage)
+            .await
             .unwrap_or_else(|error| debug!("Failed to cleanse memory pool transactions in database {}", error));
         debug!("Storing memory pool transactions in database");
         memory_pool

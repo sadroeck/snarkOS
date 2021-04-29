@@ -15,6 +15,7 @@
 // along with the snarkOS library. If not, see <https://www.gnu.org/licenses/>.
 
 use crate::{Node, State};
+use futures::executor::block_on;
 use snarkos_consensus::Miner;
 use snarkvm_dpc::{base_dpc::instantiated::*, AccountAddress};
 use snarkvm_objects::Storage;
@@ -25,7 +26,7 @@ use tracing::*;
 use std::{sync::Arc, thread, time::Duration};
 
 /// Parameters for spawning a miner that runs proof of work to find a block.
-pub struct MinerInstance<S: Storage> {
+pub struct MinerInstance<S: Storage + core::marker::Sync + Send> {
     miner_address: AccountAddress<Components>,
     node: Node<S>,
 }
@@ -68,7 +69,7 @@ impl<S: Storage + Send + Sync + 'static> MinerInstance<S> {
 
                 info!("Starting to mine the next block");
 
-                let (block, _coinbase_records) = match miner.mine_block() {
+                let (block, _coinbase_records) = match block_on(miner.mine_block()) {
                     Ok(mined_block) => mined_block,
                     Err(error) => {
                         // It's possible that the node realized that it needs to sync with another one in the

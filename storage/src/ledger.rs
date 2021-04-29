@@ -20,8 +20,8 @@ use snarkvm_algorithms::{merkle_tree::MerkleTree, traits::LoadableMerkleParamete
 use snarkvm_objects::{errors::StorageError, Block, DatabaseTransaction, LedgerScheme, Op, Storage, Transaction};
 use snarkvm_parameters::{traits::genesis::Genesis, LedgerMerkleTreeParameters, Parameter};
 use snarkvm_utilities::bytes::FromBytes;
+use std::sync::RwLock;
 
-use parking_lot::RwLock;
 use std::{
     fs,
     marker::PhantomData,

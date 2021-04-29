@@ -20,7 +20,7 @@ use snarkvm_objects::{Block, BlockHeaderHash, Storage};
 
 use std::net::SocketAddr;
 
-impl<S: Storage> Sync<S> {
+impl<S: Storage + core::marker::Sync + Send> Sync<S> {
     ///
     /// Sends a `GetSync` request to the given sync node.
     ///
@@ -108,7 +108,7 @@ impl<S: Storage> Sync<S> {
         );
 
         // Verify the block and insert it into the storage.
-        let is_valid_block = self.consensus.receive_block(&block_struct).is_ok();
+        let is_valid_block = self.consensus.receive_block(&block_struct).await.is_ok();
 
         // This is a new block, send it to our peers.
         if is_block_new && is_valid_block {

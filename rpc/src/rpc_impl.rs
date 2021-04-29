@@ -33,7 +33,6 @@ use snarkvm_utilities::{
 };
 
 use chrono::Utc;
-use parking_lot::Mutex;
 
 use std::{ops::Deref, sync::Arc};
 
@@ -41,9 +40,9 @@ use std::{ops::Deref, sync::Arc};
 /// The constructor is given Arc::clone() copies of all needed node components.
 #[derive(Derivative)]
 #[derivative(Clone(bound = ""))]
-pub struct RpcImpl<S: Storage>(Arc<RpcInner<S>>);
+pub struct RpcImpl<S: Storage + Send + core::marker::Sync>(Arc<RpcInner<S>>);
 
-impl<S: Storage> Deref for RpcImpl<S> {
+impl<S: Storage + Send + core::marker::Sync> Deref for RpcImpl<S> {
     type Target = RpcInner<S>;
 
     fn deref(&self) -> &Self::Target {
@@ -51,7 +50,7 @@ impl<S: Storage> Deref for RpcImpl<S> {
     }
 }
 
-pub struct RpcInner<S: Storage> {
+pub struct RpcInner<S: Storage + Send + core::marker::Sync> {
     /// Blockchain database storage.
     pub(crate) storage: Arc<MerkleTreeLedger<S>>,
 
@@ -84,7 +83,7 @@ impl<S: Storage + Send + core::marker::Sync + 'static> RpcImpl<S> {
         Ok(self.sync_handler()?.dpc_parameters())
     }
 
-    pub fn memory_pool(&self) -> Result<&Mutex<MemoryPool<Tx>>, RpcError> {
+    pub fn memory_pool(&self) -> Result<&MemoryPool<Tx>, RpcError> {
         Ok(self.sync_handler()?.memory_pool())
     }
 }
@@ -263,7 +262,7 @@ impl<S: Storage + Send + core::marker::Sync + 'static> RpcFunctions for RpcImpl<
                     transaction,
                 };
 
-                if let Ok(inserted) = self.memory_pool()?.lock().insert(&storage, entry) {
+                if let Ok(inserted) = futures::executor::block_on(self.memory_pool()?.insert(&storage, entry)) {
                     if inserted.is_some() {
                         info!("Transaction added to the memory pool.");
                         // TODO(ljedrz): checks if needs to be propagated to the network; if need be, this could
@@ -300,7 +299,7 @@ impl<S: Storage + Send + core::marker::Sync + 'static> RpcFunctions for RpcImpl<
     /// Returns this nodes connected peers.
     fn get_peer_info(&self) -> Result<PeerInfo, RpcError> {
         // Create a temporary tokio runtime to make an asynchronous function call
-        let peers = self.node.peer_book.connected_peers().keys().copied().collect();
+        let peers = self.node.peer_book.connected_peers().inner().keys().copied().collect();
 
         Ok(PeerInfo { peers })
     }
@@ -325,7 +324,6 @@ impl<S: Storage + Send + core::marker::Sync + 'static> RpcFunctions for RpcImpl<
 
         let full_transactions = self
             .memory_pool()?
-            .lock()
             .get_candidates(&storage, self.consensus_parameters()?.max_block_size)?;
 
         let transaction_strings = full_transactions.serialize_as_str()?;

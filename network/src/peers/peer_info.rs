@@ -14,11 +14,11 @@
 // You should have received a copy of the GNU General Public License
 // along with the snarkOS library. If not, see <https://www.gnu.org/licenses/>.
 
-use crate::NetworkError;
+use crate::{DropJoin, NetworkError};
+use atomic_instant::AtomicInstant;
 use snarkos_storage::BlockHeight;
 
-use chrono::{DateTime, Utc};
-use parking_lot::{Mutex, RwLock};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tokio::task;
 
@@ -28,7 +28,6 @@ use std::{
         atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
         Arc,
     },
-    time::Instant,
 };
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
@@ -43,11 +42,11 @@ pub struct PeerQuality {
     /// The current block height of this peer.
     pub block_height: AtomicU32,
     /// The timestamp of when the peer has been seen last.
-    pub last_seen: RwLock<Option<DateTime<Utc>>>,
+    pub last_seen: AtomicU64,
     /// An indicator of whether a `Pong` message is currently expected from this peer.
     pub expecting_pong: AtomicBool,
     /// The timestamp of the last `Ping` sent to the peer.
-    pub last_ping_sent: Mutex<Option<Instant>>,
+    pub last_ping_sent: AtomicInstant,
     /// The time it took to send a `Ping` to the peer and for it to respond with a `Pong`.
     pub rtt_ms: AtomicU64,
     /// The number of failures associated with the peer; grounds for dismissal.
@@ -78,7 +77,7 @@ pub struct PeerInfo {
     pub quality: Arc<PeerQuality>,
     /// The handles for tasks associated exclusively with this peer.
     #[serde(skip)]
-    pub tasks: Arc<Mutex<Vec<task::JoinHandle<()>>>>,
+    tasks: DropJoin<task::JoinHandle<()>>,
 }
 
 impl PeerInfo {
@@ -136,7 +135,15 @@ impl PeerInfo {
     ///
     #[inline]
     pub fn last_seen(&self) -> Option<DateTime<Utc>> {
-        *self.quality.last_seen.read()
+        let now = self.quality.last_seen.load(Ordering::SeqCst);
+        if now == 0 {
+            None
+        } else {
+            Some(DateTime::from_utc(
+                NaiveDateTime::from_timestamp((now / 1000) as i64, (now % 1000) as u32),
+                Utc,
+            ))
+        }
     }
 
     ///
@@ -203,9 +210,7 @@ impl PeerInfo {
                 self.quality.remaining_sync_blocks.store(0, Ordering::SeqCst);
                 self.disconnected_count += 1;
 
-                for handle in self.tasks.lock().drain(..).rev() {
-                    handle.abort();
-                }
+                self.tasks.flush();
 
                 Ok(())
             }
@@ -217,7 +222,7 @@ impl PeerInfo {
     }
 
     pub(crate) fn register_task(&self, handle: task::JoinHandle<()>) {
-        self.tasks.lock().push(handle);
+        self.tasks.append(handle);
     }
 }
 

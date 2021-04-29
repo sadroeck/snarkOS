@@ -54,14 +54,14 @@ features = [ "serde" ]
 [dependencies.hex]
 version = "0.4.2"
 
-[dependencies.parking_lot]
-version = "0.11.1"
-
 [dependencies.rand]
 version = "0.8"
 
 [dependencies.thiserror]
 version = "1.0"
+
+[dependencies.mpmc-map]
+version = "0.1"
 
 [dependencies.tracing]
 default-features = false

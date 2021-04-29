@@ -18,7 +18,6 @@ use crate::*;
 use snarkvm_objects::Storage;
 
 use once_cell::sync::OnceCell;
-use parking_lot::Mutex;
 use rand::{seq::SliceRandom, thread_rng, Rng};
 use std::{
     net::SocketAddr,
@@ -43,7 +42,7 @@ pub enum State {
 pub struct StateCode(AtomicU8);
 
 /// The internal state of a node.
-pub struct InnerNode<S: Storage> {
+pub struct InnerNode<S: Storage + core::marker::Sync + Send> {
     /// The node's random numeric identifier.
     pub name: u64,
     /// The current state of the node.
@@ -61,42 +60,19 @@ pub struct InnerNode<S: Storage> {
     /// The sync handler of this node.
     pub sync: OnceCell<Arc<Sync<S>>>,
     /// The tasks spawned by the node.
-    tasks: Mutex<Vec<task::JoinHandle<()>>>,
+    tasks: DropJoin<task::JoinHandle<()>>,
     /// The threads spawned by the node.
-    threads: Mutex<Vec<thread::JoinHandle<()>>>,
+    threads: DropJoin<thread::JoinHandle<()>>,
     /// An indicator of whether the node is shutting down.
     shutting_down: AtomicBool,
-}
-
-impl<S: Storage> Drop for InnerNode<S> {
-    // this won't make a difference in regular scenarios, but will be practical for test
-    // purposes, so that there are no lingering tasks
-    fn drop(&mut self) {
-        // since we're going out of scope, we don't care about holding the read lock here
-        // also, the connections are going to be broken automatically, so we only need to
-        // take care of the associated tasks here
-        for peer_info in self.peer_book.connected_peers().values() {
-            for handle in peer_info.tasks.lock().drain(..).rev() {
-                handle.abort();
-            }
-        }
-
-        for handle in self.threads.lock().drain(..).rev() {
-            let _ = handle.join().map_err(|e| error!("Can't join a thread: {:?}", e));
-        }
-
-        for handle in self.tasks.lock().drain(..).rev() {
-            handle.abort();
-        }
-    }
 }
 
 /// A core data structure for operating the networking stack of this node.
 #[derive(Derivative)]
 #[derivative(Clone(bound = ""))]
-pub struct Node<S: Storage>(Arc<InnerNode<S>>);
+pub struct Node<S: Storage + core::marker::Sync + Send>(Arc<InnerNode<S>>);
 
-impl<S: Storage> Deref for Node<S> {
+impl<S: Storage + core::marker::Sync + Send> Deref for Node<S> {
     type Target = Arc<InnerNode<S>>;
 
     fn deref(&self) -> &Self::Target {
@@ -104,7 +80,7 @@ impl<S: Storage> Deref for Node<S> {
     }
 }
 
-impl<S: Storage> Node<S> {
+impl<S: Storage + core::marker::Sync + Send> Node<S> {
     /// Returns the current state of the node.
     #[inline]
     pub fn state(&self) -> State {
@@ -169,7 +145,7 @@ impl<S: Storage + Send + core::marker::Sync + 'static> Node<S> {
 
     pub async fn start_services(&self) {
         let node_clone = self.clone();
-        let mut receiver = self.inbound.take_receiver();
+        let mut receiver = self.inbound.take_receiver().await;
         let incoming_task = task::spawn(async move {
             loop {
                 if let Err(e) = node_clone.process_incoming_messages(&mut receiver).await {
@@ -179,7 +155,7 @@ impl<S: Storage + Send + core::marker::Sync + 'static> Node<S> {
         });
         self.register_task(incoming_task);
 
-        let node_clone = self.clone();
+        let node_clone: Node<S> = self.clone();
         let peer_sync_interval = self.config.peer_sync_interval();
         let peering_task = task::spawn(async move {
             loop {
@@ -264,7 +240,7 @@ impl<S: Storage + Send + core::marker::Sync + 'static> Node<S> {
                         let mut prospect_sync_nodes = Vec::new();
                         let my_height = sync_clone.current_block_height();
 
-                        for (peer, info) in sync_clone.node().peer_book.connected_peers().iter() {
+                        for (peer, info) in sync_clone.node().peer_book.connected_peers().inner().iter() {
                             // Fetch the current block height of this connected peer.
                             let peer_block_height = info.block_height();
 
@@ -308,21 +284,17 @@ impl<S: Storage + Send + core::marker::Sync + 'static> Node<S> {
             let _ = self.disconnect_from_peer(addr);
         }
 
-        for handle in self.threads.lock().drain(..).rev() {
-            let _ = handle.join().map_err(|e| error!("Can't join a thread: {:?}", e));
-        }
+        self.threads.flush();
 
-        for handle in self.tasks.lock().drain(..).rev() {
-            handle.abort();
-        }
+        self.tasks.flush();
     }
 
     pub fn register_task(&self, handle: task::JoinHandle<()>) {
-        self.tasks.lock().push(handle);
+        self.tasks.append(handle);
     }
 
     pub fn register_thread(&self, handle: thread::JoinHandle<()>) {
-        self.threads.lock().push(handle);
+        self.threads.append(handle);
     }
 
     #[inline]

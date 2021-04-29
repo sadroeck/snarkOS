@@ -23,8 +23,7 @@ use snarkvm_utilities::{
     to_bytes,
 };
 
-use parking_lot::RwLock;
-use std::{fs, marker::PhantomData, path::Path};
+use std::{fs, marker::PhantomData, path::Path, sync::RwLock};
 
 impl<T: Transaction, P: LoadableMerkleParameters, S: Storage> LedgerScheme for Ledger<T, P, S> {
     type Block = Block<Self::Transaction>;
@@ -111,7 +110,7 @@ impl<T: Transaction, P: LoadableMerkleParameters, S: Storage> LedgerScheme for L
     /// for a given commitment, if it exists in the ledger.
     fn prove_cm(&self, cm: &Self::Commitment) -> anyhow::Result<Self::MerklePath> {
         let cm_index = self.get_cm_index(&to_bytes![cm]?)?.ok_or(LedgerError::InvalidCmIndex)?;
-        let result = self.cm_merkle_tree.read().generate_proof(cm_index, cm)?;
+        let result = self.cm_merkle_tree.read().unwrap().generate_proof(cm_index, cm)?;
 
         Ok(result)
     }

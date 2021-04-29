@@ -23,14 +23,11 @@ use snarkvm_dpc::base_dpc::{
 };
 use snarkvm_objects::Storage;
 
-use parking_lot::{Mutex, RwLock};
-use std::{
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use atomic_instant::AtomicInstant;
+use std::{sync::Arc, time::Duration};
 
 /// The sync handler of this node.
-pub struct Sync<S: Storage> {
+pub struct Sync<S: Storage + core::marker::Sync + Send> {
     /// The node this sync handler is bound to.
     node: Node<S>,
     /// The core sync objects.
@@ -42,10 +39,10 @@ pub struct Sync<S: Storage> {
     /// The interval between each memory pool sync.
     mempool_sync_interval: Duration,
     /// The last time a block sync was initiated.
-    last_block_sync: RwLock<Option<Instant>>,
+    last_block_sync: AtomicInstant,
 }
 
-impl<S: Storage> Sync<S> {
+impl<S: Storage + core::marker::Sync + Send> Sync<S> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         node: Node<S>,
@@ -60,7 +57,7 @@ impl<S: Storage> Sync<S> {
             is_miner,
             block_sync_interval,
             mempool_sync_interval,
-            last_block_sync: Default::default(),
+            last_block_sync: AtomicInstant::empty(),
         }
     }
 
@@ -77,7 +74,7 @@ impl<S: Storage> Sync<S> {
 
     /// Returns a reference to the memory pool of this node.
     #[inline]
-    pub fn memory_pool(&self) -> &Mutex<MemoryPool<Tx>> {
+    pub fn memory_pool(&self) -> &MemoryPool<Tx> {
         &self.consensus.memory_pool
     }
 
@@ -117,8 +114,11 @@ impl<S: Storage> Sync<S> {
 
     /// Checks whether any previous sync attempt has expired.
     pub fn has_block_sync_expired(&self) -> bool {
-        if let Some(ref timestamp) = *self.last_block_sync.read() {
-            timestamp.elapsed() > Duration::from_secs(crate::BLOCK_SYNC_EXPIRATION_SECS as u64)
+        let last_block_sync = self.last_block_sync.as_millis();
+
+        // due to double load, this can technically return twice, but shouldnt happen in practice
+        if last_block_sync > 0 {
+            self.last_block_sync.elapsed() > Duration::from_secs(crate::BLOCK_SYNC_EXPIRATION_SECS as u64)
         } else {
             // this means it's the very first sync attempt
             true
@@ -127,7 +127,7 @@ impl<S: Storage> Sync<S> {
 
     /// Register that the node attempted to sync blocks.
     pub fn register_block_sync_attempt(&self) {
-        *self.last_block_sync.write() = Some(Instant::now());
+        self.last_block_sync.set_now();
     }
 
     /// Returns the interval between each block sync.

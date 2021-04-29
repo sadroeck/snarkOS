@@ -30,12 +30,12 @@ use crate::sync::FIXTURE;
 use snarkos_network::{connection_reader::ConnReader, connection_writer::ConnWriter, errors::*, *};
 use snarkos_storage::LedgerStorage;
 
-use parking_lot::Mutex;
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
     runtime,
+    sync::Mutex,
 };
 use tracing::*;
 

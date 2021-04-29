@@ -38,7 +38,6 @@ use snarkvm_utilities::{to_bytes, ToBytes};
 
 use std::{net::SocketAddr, str::FromStr, sync::Arc, time::Duration};
 
-use parking_lot::Mutex;
 use tokio::runtime::{Builder, Handle};
 use tracing_subscriber::EnvFilter;
 
@@ -118,7 +117,7 @@ async fn start_server(config: Config, tokio_handle: Handle) -> anyhow::Result<()
 
     // Enable the sync layer.
     {
-        let memory_pool = Mutex::new(MemoryPool::from_storage(&storage)?);
+        let memory_pool = MemoryPool::from_storage(&storage).await?;
 
         debug!("Loading Aleo parameters...");
         let dpc_parameters = PublicParameters::<Components>::load(!config.miner.is_miner)?;

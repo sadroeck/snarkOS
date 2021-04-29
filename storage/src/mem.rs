@@ -17,9 +17,7 @@
 use crate::NUM_COLS;
 use snarkvm_objects::{DatabaseTransaction, Op, Storage, StorageError};
 
-use parking_lot::RwLock;
-
-use std::{collections::HashMap, path::Path};
+use std::{collections::HashMap, path::Path, sync::RwLock}; // only used for testing
 
 #[allow(clippy::type_complexity)]
 pub struct MemDb {
@@ -38,20 +36,20 @@ impl Storage for MemDb {
     }
 
     fn get(&self, col: u32, key: &[u8]) -> Result<Option<Vec<u8>>, StorageError> {
-        Ok(self.cols.read()[col as usize].get(key).map(|v| v.to_vec()))
+        Ok(self.cols.read().unwrap()[col as usize].get(key).map(|v| v.to_vec()))
     }
 
     #[allow(clippy::type_complexity)]
     fn get_col(&self, col: u32) -> Result<Vec<(Box<[u8]>, Box<[u8]>)>, StorageError> {
-        Ok(self.cols.read()[col as usize].clone().into_iter().collect())
+        Ok(self.cols.read().unwrap()[col as usize].clone().into_iter().collect())
     }
 
     fn get_keys(&self, col: u32) -> Result<Vec<Box<[u8]>>, StorageError> {
-        Ok(self.cols.read()[col as usize].keys().cloned().collect())
+        Ok(self.cols.read().unwrap()[col as usize].keys().cloned().collect())
     }
 
     fn put<K: AsRef<[u8]>, V: AsRef<[u8]>>(&self, col: u32, key: K, value: V) -> Result<(), StorageError> {
-        self.cols.write()[col as usize].insert(key.as_ref().into(), value.as_ref().into());
+        self.cols.write().unwrap()[col as usize].insert(key.as_ref().into(), value.as_ref().into());
         Ok(())
     }
 
@@ -60,7 +58,7 @@ impl Storage for MemDb {
             return Ok(());
         }
 
-        let mut cols = self.cols.write();
+        let mut cols = self.cols.write().unwrap();
         for operation in transaction.0 {
             match operation {
                 Op::Insert { col, key, value } => {
@@ -76,7 +74,7 @@ impl Storage for MemDb {
     }
 
     fn exists(&self, col: u32, key: &[u8]) -> bool {
-        self.cols.read()[col as usize].contains_key(key)
+        self.cols.read().unwrap()[col as usize].contains_key(key)
     }
 
     fn try_catch_up_with_primary(&self) -> Result<(), StorageError> {

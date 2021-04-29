@@ -14,27 +14,22 @@
 // You should have received a copy of the GNU General Public License
 // along with the snarkOS library. If not, see <https://www.gnu.org/licenses/>.
 
-use crate::{ConnWriter, Direction, Message, NetworkError, Node, Payload};
+use crate::{ConnWriter, Direction, Message, NetworkError, Node, Payload, Receiver, Sender};
 
+use mpmc_map::MpmcMap;
 use snarkvm_objects::Storage;
+use tokio::sync::mpsc::error::TrySendError;
 
 use std::{
-    collections::HashMap,
     net::SocketAddr,
     sync::atomic::{AtomicU64, Ordering},
 };
-
-use parking_lot::RwLock;
-use tokio::sync::mpsc::{error::TrySendError, Receiver, Sender};
-
-/// The map of remote addresses to their active write channels.
-type Channels = HashMap<SocketAddr, Sender<Message>>;
 
 /// A core data structure for handling outbound network traffic.
 #[derive(Debug, Default)]
 pub struct Outbound {
     /// The map of remote addresses to their active write channels.
-    pub(crate) channels: RwLock<Channels>,
+    pub(crate) channels: MpmcMap<SocketAddr, Sender>,
     /// The monotonic counter for the number of send requests that succeeded.
     send_success_count: AtomicU64,
     /// The monotonic counter for the number of send requests that failed.
@@ -42,6 +37,14 @@ pub struct Outbound {
 }
 
 impl Outbound {
+    pub fn new(channels: MpmcMap<SocketAddr, Sender>) -> Self {
+        Self {
+            channels,
+            send_success_count: Default::default(),
+            send_failure_count: Default::default(),
+        }
+    }
+
     ///
     /// Sends the given request to the address associated with it.
     ///
@@ -52,7 +55,7 @@ impl Outbound {
     pub async fn send_request(&self, request: Message) {
         let target_addr = request.receiver();
         // Fetch the outbound channel.
-        match self.outbound_channel(target_addr) {
+        match self.outbound_channel(target_addr).await {
             Ok(channel) => match channel.try_send(request) {
                 Ok(()) => {}
                 Err(TrySendError::Full(request)) => {
@@ -78,13 +81,11 @@ impl Outbound {
     /// Establishes an outbound channel to the given remote address, if it does not exist.
     ///
     #[inline]
-    fn outbound_channel(&self, remote_address: SocketAddr) -> Result<Sender<Message>, NetworkError> {
+    async fn outbound_channel(&self, remote_address: SocketAddr) -> Result<Sender, NetworkError> {
         Ok(self
             .channels
-            .read()
             .get(&remote_address)
-            .ok_or(NetworkError::OutboundChannelMissing)?
-            .clone())
+            .ok_or(NetworkError::OutboundChannelMissing)?)
     }
 }
 
@@ -108,7 +109,7 @@ impl<S: Storage + Send + Sync + 'static> Node<S> {
     }
 
     /// This method handles new outbound messages to a single connected node.
-    pub async fn listen_for_outbound_messages(&self, mut receiver: Receiver<Message>, writer: &mut ConnWriter) {
+    pub async fn listen_for_outbound_messages(&self, mut receiver: Receiver, writer: &mut ConnWriter) {
         loop {
             // Read the next message queued to be sent.
             if let Some(message) = receiver.recv().await {

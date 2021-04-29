@@ -18,15 +18,14 @@ use crate::{
     peers::{PeerInfo, PeerQuality},
     NetworkError,
 };
+use mpmc_map::MpmcMap;
 use snarkos_metrics::Metrics;
 use snarkos_storage::{BlockHeight, Ledger};
 use snarkvm_algorithms::traits::LoadableMerkleParameters;
 use snarkvm_objects::{Storage, Transaction};
 
-use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashMap,
     net::SocketAddr,
     sync::{atomic::Ordering, Arc},
     time::Instant,
@@ -37,8 +36,8 @@ pub struct SerializedPeerBook(Vec<PeerInfo>);
 
 impl From<&PeerBook> for SerializedPeerBook {
     fn from(book: &PeerBook) -> Self {
-        let mut peers = book.connected_peers();
-        peers.extend(book.disconnected_peers().into_iter());
+        let peers = (&**book.connected_peers().inner()).clone();
+        let peers = peers.union((&**book.disconnected_peers().inner()).clone());
         let peers = peers
             .into_iter()
             .map(|(_, info)| info)
@@ -51,14 +50,16 @@ impl From<&PeerBook> for SerializedPeerBook {
 
 impl From<SerializedPeerBook> for PeerBook {
     fn from(book: SerializedPeerBook) -> Self {
+        let inner = book
+            .0
+            .into_iter()
+            .filter(|info| !info.address().ip().is_loopback())
+            .map(|info| (info.address(), info))
+            .collect();
+        let disconnected_peers = MpmcMap::new();
+        disconnected_peers.reset(Arc::new(inner));
         PeerBook {
-            disconnected_peers: RwLock::new(
-                book.0
-                    .into_iter()
-                    .filter(|info| !info.address().ip().is_loopback())
-                    .map(|info| (info.address(), info))
-                    .collect(),
-            ),
+            disconnected_peers,
             ..Default::default()
         }
     }
@@ -70,11 +71,11 @@ impl From<SerializedPeerBook> for PeerBook {
 #[derive(Debug, Default)]
 pub struct PeerBook {
     /// The map of the addresses currently being handshaken with.
-    connecting_peers: RwLock<HashMap<SocketAddr, Instant>>,
+    connecting_peers: MpmcMap<SocketAddr, Instant>,
     /// The map of connected peers to their metadata.
-    connected_peers: RwLock<HashMap<SocketAddr, PeerInfo>>,
+    connected_peers: MpmcMap<SocketAddr, PeerInfo>,
     /// The map of disconnected peers to their metadata.
-    disconnected_peers: RwLock<HashMap<SocketAddr, PeerInfo>>,
+    disconnected_peers: MpmcMap<SocketAddr, PeerInfo>,
 }
 
 impl PeerBook {
@@ -107,7 +108,7 @@ impl PeerBook {
     ///
     #[inline]
     pub fn is_connecting(&self, address: SocketAddr) -> bool {
-        self.connecting_peers.read().contains_key(&address)
+        self.connecting_peers.contains_key(&address)
     }
 
     ///
@@ -115,7 +116,7 @@ impl PeerBook {
     ///
     #[inline]
     pub fn is_connected(&self, address: SocketAddr) -> bool {
-        self.connected_peers.read().contains_key(&address)
+        self.connected_peers.contains_key(&address)
     }
 
     ///
@@ -123,7 +124,7 @@ impl PeerBook {
     ///
     #[inline]
     pub fn is_disconnected(&self, address: SocketAddr) -> bool {
-        self.disconnected_peers.read().contains_key(&address)
+        self.disconnected_peers.contains_key(&address)
     }
 
     ///
@@ -131,7 +132,7 @@ impl PeerBook {
     ///
     #[inline]
     pub fn number_of_connecting_peers(&self) -> u16 {
-        self.connecting_peers.read().len() as u16
+        self.connecting_peers.len() as u16
     }
 
     ///
@@ -139,7 +140,7 @@ impl PeerBook {
     ///
     #[inline]
     pub fn number_of_connected_peers(&self) -> u16 {
-        self.connected_peers.read().len() as u16
+        self.connected_peers.len() as u16
     }
 
     ///
@@ -147,41 +148,41 @@ impl PeerBook {
     ///
     #[inline]
     pub fn number_of_disconnected_peers(&self) -> u16 {
-        self.disconnected_peers.read().len() as u16
+        self.disconnected_peers.len() as u16
     }
 
     ///
     /// Returns a reference to the connecting peers in this peer book.
     ///
     #[inline]
-    pub fn connecting_peers(&self) -> HashMap<SocketAddr, Instant> {
-        self.connecting_peers.read().clone()
+    pub fn connecting_peers(&self) -> &MpmcMap<SocketAddr, Instant> {
+        &self.connecting_peers
     }
 
     ///
     /// Returns a reference to the connected peers in this peer book.
     ///
     #[inline]
-    pub fn connected_peers(&self) -> HashMap<SocketAddr, PeerInfo> {
-        (*self.connected_peers.read()).clone()
+    pub fn connected_peers(&self) -> &MpmcMap<SocketAddr, PeerInfo> {
+        &self.connected_peers
     }
 
     ///
     /// Returns a reference to the disconnected peers in this peer book.
     ///
     #[inline]
-    pub fn disconnected_peers(&self) -> HashMap<SocketAddr, PeerInfo> {
-        self.disconnected_peers.read().clone()
+    pub fn disconnected_peers(&self) -> &MpmcMap<SocketAddr, PeerInfo> {
+        &self.disconnected_peers
     }
 
     ///
     /// Marks the given address as "connecting".
     ///
-    pub fn set_connecting(&self, address: SocketAddr) -> Result<(), NetworkError> {
+    pub async fn set_connecting(&self, address: SocketAddr) -> Result<(), NetworkError> {
         if self.is_connected(address) {
             return Err(NetworkError::PeerAlreadyConnected);
         }
-        self.connecting_peers.write().insert(address, Instant::now());
+        self.connecting_peers.insert(address, Instant::now()).await;
 
         Ok(())
     }
@@ -189,12 +190,12 @@ impl PeerBook {
     ///
     /// Adds the given address to the connected peers in the `PeerBook`.
     ///
-    pub fn set_connected(&self, address: SocketAddr, listener: Option<SocketAddr>) {
+    pub async fn set_connected(&self, address: SocketAddr, listener: Option<SocketAddr>) {
         // If listener.is_some(), then it's different than the address; otherwise it's just the address param.
         let listener = if let Some(addr) = listener { addr } else { address };
 
         // Remove the address from the connecting peers, if it exists.
-        let mut peer_info = match self.disconnected_peers.write().remove(&listener) {
+        let mut peer_info = match self.disconnected_peers.remove(listener.clone()).await {
             // Case 1 - A previously known peer.
             Some(peer_info) => peer_info,
             // Case 2 - A peer that was previously not known.
@@ -202,13 +203,13 @@ impl PeerBook {
         };
 
         // Remove the peer's address from the list of connecting peers.
-        self.connecting_peers.write().remove(&address);
+        self.connecting_peers.remove(address).await;
 
         // Update the peer info to connected.
         peer_info.set_connected();
 
         // Add the address into the connected peers.
-        let success = self.connected_peers.write().insert(listener, peer_info).is_none();
+        let success = self.connected_peers.insert(listener, peer_info).await.is_none();
         // On success, increment the connected peer count.
         connected_peers_inc!(success);
     }
@@ -217,19 +218,19 @@ impl PeerBook {
     /// Removes the given address from the connecting and connected peers in this `PeerBook`,
     /// and adds the given address to the disconnected peers in this `PeerBook`.
     ///
-    pub fn set_disconnected(&self, address: SocketAddr) -> Result<bool, NetworkError> {
+    pub async fn set_disconnected(&self, address: SocketAddr) -> Result<bool, NetworkError> {
         // Case 1 - The given address is a connecting peer, attempt to disconnect.
-        if self.connecting_peers.write().remove(&address).is_some() {
+        if self.connecting_peers.remove(address.clone()).await.is_some() {
             return Ok(true);
         }
 
         // Case 2 - The given address is a connected peer, attempt to disconnect.
-        if let Some(mut peer_info) = self.connected_peers.write().remove(&address) {
+        if let Some(mut peer_info) = self.connected_peers.remove(address.clone()).await {
             // Update the peer info to disconnected.
             peer_info.set_disconnected()?;
 
             // Add the address into the disconnected peers.
-            let success = self.disconnected_peers.write().insert(address, peer_info).is_none();
+            let success = self.disconnected_peers.insert(address, peer_info).await.is_none();
             // On success, decrement the connected peer count.
             connected_peers_dec!(success);
 
@@ -242,16 +243,13 @@ impl PeerBook {
     ///
     /// Adds the given address to the disconnected peers in this `PeerBook`.
     ///
-    pub fn add_peer(&self, address: SocketAddr) {
+    pub async fn add_peer(&self, address: SocketAddr) {
         if self.is_connected(address) || self.is_disconnected(address) || self.is_connecting(address) {
             return;
         }
 
         // Add the given address to the map of disconnected peers.
-        self.disconnected_peers
-            .write()
-            .entry(address)
-            .or_insert_with(|| PeerInfo::new(address));
+        self.disconnected_peers.insert(address, PeerInfo::new(address)).await;
 
         debug!("Added {} to the peer book", address);
     }
@@ -259,14 +257,13 @@ impl PeerBook {
     ///
     /// Returns a reference to the peer info of the given address, if it exists.
     ///
-    pub fn get_peer(&self, address: SocketAddr) -> Result<PeerInfo, NetworkError> {
+    pub async fn get_peer(&self, address: SocketAddr) -> Result<PeerInfo, NetworkError> {
         // Check if the address is a connected peer.
         if self.is_connected(address) {
             // Fetch the peer info of the connected peer.
             return self
                 .connected_peers()
                 .get(&address)
-                .cloned()
                 .ok_or(NetworkError::PeerBookMissingPeer);
         }
 
@@ -276,7 +273,6 @@ impl PeerBook {
             return self
                 .disconnected_peers()
                 .get(&address)
-                .cloned()
                 .ok_or(NetworkError::PeerBookMissingPeer);
         }
 
@@ -290,18 +286,18 @@ impl PeerBook {
     /// This function should only be used in the case that the peer
     /// should be forgotten about permanently.
     ///
-    pub fn remove_peer(&self, address: &SocketAddr) {
+    pub async fn remove_peer(&self, address: &SocketAddr) {
         // Remove the given address from the connecting peers, if it exists.
-        self.connecting_peers.write().remove(address);
+        self.connecting_peers.remove(address.clone()).await;
 
         // Remove the given address from the connected peers, if it exists.
-        if self.connected_peers.write().remove(address).is_some() {
+        if self.connected_peers.remove(address.clone()).await.is_some() {
             // Decrement the connected_peer metric as the peer was not yet disconnected.
             connected_peers_dec!()
         }
 
         // Remove the address from the disconnected peers, if it exists.
-        self.disconnected_peers.write().remove(address);
+        self.disconnected_peers.remove(address.clone()).await;
     }
 
     fn peer_quality(&self, addr: SocketAddr) -> Option<Arc<PeerQuality>> {
@@ -314,6 +310,7 @@ impl PeerBook {
     pub fn last_seen(&self) -> Option<SocketAddr> {
         if let Some((&socket_address, _)) = self
             .connected_peers()
+            .inner()
             .iter()
             .max_by(|a, b| a.1.last_seen().cmp(&b.1.last_seen()))
         {
@@ -329,7 +326,9 @@ impl PeerBook {
     #[inline]
     pub fn update_last_seen(&self, addr: SocketAddr) {
         if let Some(ref quality) = self.peer_quality(addr) {
-            *quality.last_seen.write() = Some(chrono::Utc::now());
+            quality
+                .last_seen
+                .store(chrono::Utc::now().timestamp_millis() as u64, Ordering::SeqCst);
         } else {
             warn!("Tried updating state of a peer that's not connected: {}", addr);
         }
@@ -337,8 +336,7 @@ impl PeerBook {
 
     pub fn sending_ping(&self, target: SocketAddr) {
         if let Some(quality) = self.peer_quality(target) {
-            let timestamp = Instant::now();
-            *quality.last_ping_sent.lock() = Some(timestamp);
+            quality.last_ping_sent.set_now();
             quality.expecting_pong.store(true, Ordering::SeqCst);
         } else {
             // shouldn't occur, but just in case
@@ -359,8 +357,7 @@ impl PeerBook {
     pub fn received_pong(&self, source: SocketAddr) {
         if let Some(quality) = self.peer_quality(source) {
             if quality.expecting_pong.load(Ordering::SeqCst) {
-                let ping_sent = quality.last_ping_sent.lock().unwrap();
-                let rtt = ping_sent.elapsed().as_millis() as u64;
+                let rtt = quality.last_ping_sent.elapsed().as_millis() as u64;
                 trace!("RTT for {} is {}ms", source, rtt);
                 quality.rtt_ms.store(rtt, Ordering::SeqCst);
                 quality.expecting_pong.store(false, Ordering::SeqCst);
@@ -406,7 +403,7 @@ impl PeerBook {
 
     /// Cancels any expected sync block counts from all peers.
     pub fn cancel_any_unfinished_syncing(&self) {
-        for peer_info in self.connected_peers().values_mut() {
+        for peer_info in self.connected_peers().inner().values() {
             let missing_sync_blocks = peer_info.quality.remaining_sync_blocks.swap(0, Ordering::SeqCst);
             if missing_sync_blocks != 0 {
                 warn!(

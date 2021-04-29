@@ -34,8 +34,8 @@ use snarkvm_utilities::{
     bytes::{FromBytes, ToBytes},
     to_bytes,
 };
+use std::sync::RwLock;
 
-use parking_lot::RwLock;
 use rand::{thread_rng, Rng};
 use std::{
     fs::{self, File},

@@ -16,19 +16,10 @@
 
 use crate::{errors::NetworkError, message::*, ConnReader, ConnWriter, Node, Receiver, Sender, State};
 
-use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Duration};
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 
-use parking_lot::Mutex;
 use snarkvm_objects::Storage;
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    net::{TcpListener, TcpStream},
-    sync::mpsc::channel,
-    task,
-};
-
-/// The map of remote addresses to their active writers.
-pub type Channels = HashMap<SocketAddr, Arc<ConnWriter>>;
+use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}, sync::{Mutex, mpsc::channel}, task};
 
 /// A stateless component for handling inbound network traffic.
 #[derive(Debug)]
@@ -60,9 +51,10 @@ impl Inbound {
     }
 
     #[inline]
-    pub(crate) fn take_receiver(&self) -> Receiver {
+    pub(crate) async fn take_receiver(&self) -> Receiver {
         self.receiver
             .lock()
+            .await
             .take()
             .expect("The Inbound Receiver had already been taken!")
     }
@@ -125,17 +117,17 @@ impl<S: Storage + Send + Sync + 'static> Node<S> {
                                 });
 
                                 // Save the channel under the provided remote address.
-                                node.outbound.channels.write().insert(remote_address, sender);
+                                node.outbound.channels.insert(remote_address, sender).await;
 
                                 // Finally, mark the peer as connected.
-                                node.peer_book.set_connected(remote_address, Some(remote_listener));
+                                node.peer_book.set_connected(remote_address, Some(remote_listener)).await;
 
                                 trace!("Connected to {}", remote_address);
 
                                 // Immediately send a ping to provide the peer with our block height.
                                 node.send_ping(remote_address).await;
 
-                                if let Ok(ref peer) = node.peer_book.get_peer(remote_address) {
+                                if let Ok(ref peer) = node.peer_book.get_peer(remote_address).await {
                                     peer.register_task(peer_reading_task);
                                     peer.register_task(peer_writing_task);
                                 } else {
@@ -267,7 +259,7 @@ impl<S: Storage + Send + Sync + 'static> Node<S> {
             }
             Payload::MemoryPool(mempool) => {
                 if let Some(ref sync) = self.sync() {
-                    sync.received_memory_pool(mempool)?;
+                    sync.received_memory_pool(mempool).await?;
                 }
             }
             Payload::GetSync(getsync) => {
@@ -289,7 +281,7 @@ impl<S: Storage + Send + Sync + 'static> Node<S> {
                 self.send_peers(source).await;
             }
             Payload::Peers(peers) => {
-                self.process_inbound_peers(peers);
+                self.process_inbound_peers(peers).await;
             }
             Payload::Ping(block_height) => {
                 self.peer_book.received_ping(source, block_height);
@@ -330,7 +322,7 @@ impl<S: Storage + Send + Sync + 'static> Node<S> {
         remote_address: SocketAddr,
         stream: TcpStream,
     ) -> Result<(ConnWriter, ConnReader, SocketAddr), NetworkError> {
-        self.peer_book.set_connecting(remote_address)?;
+        self.peer_book.set_connecting(remote_address).await?;
 
         let (mut reader, mut writer) = stream.into_split();
 

@@ -16,7 +16,7 @@
 
 use crate::{errors::NetworkError, message::*};
 
-use parking_lot::Mutex;
+use tokio::sync::Mutex;
 use tokio::{io::AsyncWriteExt, net::tcp::OwnedWriteHalf};
 
 use std::{net::SocketAddr, sync::Arc};
@@ -64,6 +64,7 @@ impl ConnWriter {
                 encrypted_len += self
                     .noise
                     .lock()
+                    .await
                     .write_message(chunk, &mut self.buffer[encrypted_len..])?;
                 processed_len += chunk_len;
             }
