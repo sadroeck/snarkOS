@@ -37,14 +37,6 @@ pub struct Outbound {
 }
 
 impl Outbound {
-    pub fn new(channels: MpmcMap<SocketAddr, Sender>) -> Self {
-        Self {
-            channels,
-            send_success_count: Default::default(),
-            send_failure_count: Default::default(),
-        }
-    }
-
     ///
     /// Sends the given request to the address associated with it.
     ///

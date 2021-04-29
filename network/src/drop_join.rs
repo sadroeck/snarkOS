@@ -28,8 +28,9 @@ impl<X: Send + Sync + 'static> DropJoinable for tokio::task::JoinHandle<X> {
 
 impl<X: Send + Sync + 'static> DropJoinable for std::thread::JoinHandle<X> {
     fn destroy(self) {
-        // todo: this could be blocking in an async thread??
-        self.join().map_err(|e| error!("Can't join a thread: {:?}", e)).ok();
+        tokio::task::spawn_blocking(move || {
+            self.join().map_err(|e| error!("Can't join a thread: {:?}", e)).ok();
+        });
     }
 }
 

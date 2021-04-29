@@ -234,13 +234,8 @@ impl FakeNode {
         debug!("wrote a message containing a {} to the stream", payload);
     }
 
-<<<<<<< HEAD
     pub async fn write_bytes(&mut self, bytes: &[u8]) {
         self.writer.writer.write_all(bytes).await.unwrap();
-=======
-    pub async fn write_bytes(&self, bytes: &[u8]) {
-        self.writer.write_raw(bytes.to_vec()).await.unwrap();
->>>>>>> d35d2055... test fixes
         debug!("wrote {}B to the stream", bytes.len());
     }
 }
